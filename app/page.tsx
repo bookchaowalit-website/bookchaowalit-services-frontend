@@ -1,197 +1,114 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 
-function Shell({
-  title,
-  subtitle,
-  badge = "Portfolio demo · local-only",
-  children,
-}: {
-  title: string;
-  subtitle: string;
-  badge?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900 dark:bg-black dark:text-zinc-100">
-      <div className="mx-auto max-w-6xl px-4 py-10">
-        <header className="mb-8">
-          <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">{badge}</p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight">{title}</h1>
-          <p className="mt-2 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">{subtitle}</p>
-        </header>
-        {children}
-        <footer className="mt-10 border-t border-zinc-200 pt-4 text-xs text-zinc-500 dark:border-zinc-800">
-          Honest demo: no multi-tenant backend. State (if any) stays in this browser.
-        </footer>
-      </div>
-    </div>
-  );
-}
+type Service = { id: string; title: string; body: string; status: "Available" | "Draft" | "Paused"; createdAt: number };
 
-function Button({
-  children,
-  onClick,
-  variant = "primary",
-  disabled,
-  type = "button",
-  className = "",
-}: {
-  children: ReactNode;
-  onClick?: () => void;
-  variant?: "primary" | "secondary" | "ghost" | "danger";
-  disabled?: boolean;
-  type?: "button" | "submit";
-  className?: string;
-}) {
-  const base =
-    "inline-flex items-center justify-center rounded-lg px-3 py-2 text-sm font-medium transition disabled:opacity-50 " +
-    className;
-  const styles =
-    variant === "primary"
-      ? "bg-zinc-900 text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900"
-      : variant === "secondary"
-        ? "bg-white text-zinc-900 ring-1 ring-zinc-200 hover:bg-zinc-100 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-zinc-700"
-        : variant === "danger"
-          ? "bg-red-600 text-white hover:bg-red-500"
-          : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900";
-  return (
-    <button type={type} disabled={disabled} onClick={onClick} className={`${base} ${styles}`}>
-      {children}
-    </button>
-  );
-}
-
-const inputClass =
-  "w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none ring-zinc-400 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-950";
+const SEED: Service[] = [
+  { id: "service-1", title: "Full-stack build", body: "Next.js + API", status: "Available", createdAt: 1 },
+  { id: "service-2", title: "Product interface audit", body: "Flows, hierarchy, and responsive behavior", status: "Available", createdAt: 2 },
+  { id: "service-3", title: "Data workflow prototype", body: "A small local-first operating surface", status: "Draft", createdAt: 3 },
+];
 
 function useLocalStorage<T>(key: string, initial: T) {
-  const [value, setValue] = useState<T>(initial);
+  const [value, setValue] = useState(initial);
   const [ready, setReady] = useState(false);
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(key);
-      if (raw != null) setValue(JSON.parse(raw) as T);
-    } catch {
-      /* ignore */
-    }
+      const stored = localStorage.getItem(key);
+      if (stored) setValue(JSON.parse(stored) as T);
+    } catch { /* keep the authored seed */ }
     setReady(true);
   }, [key]);
   useEffect(() => {
-    if (!ready) return;
-    localStorage.setItem(key, JSON.stringify(value));
-  }, [key, value, ready]);
+    if (ready) localStorage.setItem(key, JSON.stringify(value));
+  }, [key, ready, value]);
   return [value, setValue] as const;
 }
 
-function uid() {
-  return crypto.randomUUID();
-}
-
-async function copyText(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-
-type Item = { id: string; title: string; body: string; status: string; createdAt: number };
-
-const SEED: Item[] = [{"title": "Full-stack build", "body": "Next.js + API", "status": "Available"}].map((x: any, i: number) => ({
-  id: String(x.id ?? i + 1),
-  title: x.title,
-  body: x.body,
-  status: x.status,
-  createdAt: x.createdAt ?? Date.now() - i * 86400000,
-}));
-
-const FIELDS = [{"key": "title", "label": "Title", "type": "text"}, {"key": "body", "label": "Details", "type": "textarea"}, {"key": "status", "label": "Status", "type": "select", "options": ["Draft", "Active", "Done"]}] as { key: "title" | "body" | "status"; label: string; type: string; options?: string[] }[];
-
 export default function Home() {
-  const [items, setItems] = useLocalStorage<Item[]>("services-v1", SEED);
+  const [services, setServices] = useLocalStorage<Service[]>("services-ledger-v2", SEED);
   const [query, setQuery] = useState("");
-  const [draft, setDraft] = useState<Record<string, string>>(() =>
-    Object.fromEntries(FIELDS.map((f) => [f.key, f.options?.[0] ?? ""]))
-  );
+  const [filter, setFilter] = useState<"All" | Service["status"]>("All");
+  const [draft, setDraft] = useState({ title: "", body: "", status: "Available" as Service["status"] });
+  const visible = useMemo(() => services.filter((service) => {
+    const matchesFilter = filter === "All" || service.status === filter;
+    const haystack = `${service.title} ${service.body} ${service.status}`.toLowerCase();
+    return matchesFilter && haystack.includes(query.toLowerCase());
+  }), [filter, query, services]);
 
-  const filtered = items.filter((it) =>
-    (it.title + it.body + it.status).toLowerCase().includes(query.toLowerCase())
-  );
-
-  const add = () => {
-    if (!String(draft.title || "").trim()) return;
-    setItems((prev) => [
-      {
-        id: uid(),
-        title: draft.title || "",
-        body: draft.body || "",
-        status: draft.status || "",
-        createdAt: Date.now(),
-      },
-      ...prev,
-    ]);
-    setDraft(Object.fromEntries(FIELDS.map((f) => [f.key, f.options?.[0] ?? ""])));
-  };
+  function addService(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!draft.title.trim()) return;
+    setServices((current) => [{ ...draft, id: crypto.randomUUID(), title: draft.title.trim(), body: draft.body.trim(), createdAt: Date.now() }, ...current]);
+    setDraft({ title: "", body: "", status: "Available" });
+  }
 
   return (
-    <Shell title="Services" subtitle="Catalog of services you offer.">
-      <div className="mb-4 flex flex-wrap gap-2">
-        <input className={`${inputClass} max-w-sm`} placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <span className="self-center text-sm text-zinc-500">{filtered.length} items</span>
-      </div>
-      <div className="mb-6 grid gap-2 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950 md:grid-cols-2">
-        {FIELDS.map((f) => (
-          <label key={f.key} className="block space-y-1">
-            <span className="text-xs font-medium text-zinc-500">{f.label}</span>
-            {f.type === "textarea" ? (
-              <textarea
-                className={`${inputClass} min-h-[72px]`}
-                value={draft[f.key] || ""}
-                onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
-              />
-            ) : f.type === "select" ? (
-              <select
-                className={inputClass}
-                value={draft[f.key] || ""}
-                onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
-              >
-                {(f.options || []).map((o) => (
-                  <option key={o}>{o}</option>
-                ))}
-              </select>
-            ) : (
-              <input
-                className={inputClass}
-                value={draft[f.key] || ""}
-                onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
-              />
-            )}
-          </label>
-        ))}
-        <div className="md:col-span-2">
-          <Button onClick={add}>Add</Button>
+    <main className="service-shell">
+      <nav className="service-nav" aria-label="Service Ledger">
+        <span className="service-mark">SERVICE / LEDGER</span>
+        <span>LOCAL CATALOG · EDIT IN PLACE</span>
+      </nav>
+
+      <header className="service-hero">
+        <div>
+          <h1>Make the work easy to find.</h1>
+          <p>A small working catalog for the services you offer. Add a line, give it a state, and keep the useful version in view.</p>
         </div>
-      </div>
-      <ul className="space-y-2">
-        {filtered.map((it) => (
-          <li key={it.id} className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <div className="font-medium">{it.title}</div>
-                <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{it.body}</p>
-                <span className="mt-2 inline-block rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-900">{it.status}</span>
-              </div>
-              <Button variant="ghost" onClick={() => setItems((prev) => prev.filter((x) => x.id !== it.id))}>
-                Delete
-              </Button>
+        <div className="service-stamp">CATALOG<br /><strong>{String(services.length).padStart(2, "0")}</strong><br />LINES</div>
+      </header>
+
+      <section className="service-summary" aria-label="Catalog summary">
+        <span><strong>{services.length}</strong> lines in ledger</span>
+        <span><strong>{services.filter((service) => service.status === "Available").length}</strong> available now</span>
+        <span><strong>{visible.length}</strong> showing</span>
+      </section>
+
+      <section className="service-workspace">
+        <form className="service-form" onSubmit={addService}>
+          <div className="service-section-head"><span>WRITE A NEW LINE</span><span>01</span></div>
+          <h2>Describe the offer.</h2>
+          <label>
+            <span>Name</span>
+            <input aria-label="Service name" placeholder="e.g. Interface direction" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
+          </label>
+          <label>
+            <span>Details</span>
+            <textarea aria-label="Service details" placeholder="What does this help someone do?" value={draft.body} onChange={(event) => setDraft({ ...draft, body: event.target.value })} />
+          </label>
+          <label>
+            <span>State</span>
+            <select aria-label="Service state" value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as Service["status"] })}>
+              <option>Available</option><option>Draft</option><option>Paused</option>
+            </select>
+          </label>
+          <button className="service-submit" type="submit">Add to ledger <span>ADD</span></button>
+          <p className="service-note">Stored in this browser only. No checkout, account, or remote catalog.</p>
+        </form>
+
+        <div className="service-ledger">
+          <div className="service-section-head"><span>THE LEDGER</span><span>02</span></div>
+          <div className="service-tools">
+            <input aria-label="Search services" placeholder="Search the ledger" value={query} onChange={(event) => setQuery(event.target.value)} />
+            <div className="service-filters" aria-label="Filter service state">
+              {(["All", "Available", "Draft", "Paused"] as const).map((state) => <button key={state} type="button" aria-pressed={filter === state} onClick={() => setFilter(state)}>{state}</button>)}
             </div>
-          </li>
-        ))}
-      </ul>
-    </Shell>
+          </div>
+          <div className="service-list" aria-live="polite">
+            {visible.length > 0 ? visible.map((service, index) => (
+              <article className="service-row" key={service.id}>
+                <span className="service-row-number">{String(index + 1).padStart(2, "0")}</span>
+                <div className="service-row-copy"><h3>{service.title}</h3><p>{service.body}</p></div>
+                <span className={`service-status service-status-${service.status.toLowerCase()}`}>{service.status}</span>
+                <button className="service-delete" type="button" onClick={() => setServices((current) => current.filter((item) => item.id !== service.id))}>Remove</button>
+              </article>
+            )) : <p className="service-empty">No lines match this filter. Try another state or add a new service.</p>}
+          </div>
+        </div>
+      </section>
+
+      <footer className="service-footer"><span>BOOK / SOLO CATALOG</span><span>LOCAL STORAGE · HONEST DEMO</span></footer>
+    </main>
   );
 }

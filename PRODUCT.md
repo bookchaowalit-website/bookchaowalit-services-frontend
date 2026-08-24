@@ -22,6 +22,12 @@ See `README.md` for install and run instructions when present.
 ## Source README excerpt
 
 ```
+
+## Current product truth
+
+- Browser-local CRUD list for service name, details, and state.
+- Search and state filters operate on the in-browser catalog.
+- No remote catalog, checkout, account, or multi-tenant service backend.
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
